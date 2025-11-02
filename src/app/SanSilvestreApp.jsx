@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Utilidad para calcular el plan de entrenamiento
 const generateTrainingPlan = () => {
   const today = new Date();
   const raceDate = new Date('2025-12-31');
@@ -26,10 +25,15 @@ const generateTrainingPlan = () => {
   return { plan, daysUntilRace, weeksUntilRace };
 };
 
-// Ejercicios de calentamiento
+// Calentamiento reorganizado: primero movilidad, luego activación
 const warmUpExercises = [
+  { name: 'Rotación de tobillos', duration: 30, description: '30 segundos - círculos con ambos tobillos' },
+  { name: 'Rotación de rodillas', duration: 30, description: '30 segundos - círculos suaves' },
+  { name: 'Rotación de cadera', duration: 30, description: '30 segundos - círculos amplios' },
+  { name: 'Círculos de brazos', duration: 30, description: '30 segundos - adelante y atrás' },
+  { name: 'Estiramiento de cuádriceps', duration: 30, description: '30 segundos - mantener cada pierna' },
+  { name: 'Estiramiento de gemelos', duration: 30, description: '30 segundos - ambas piernas' },
   { name: 'Caminar ligero', duration: 120, description: '2 minutos caminando a paso ligero' },
-  { name: 'Rotación de tobillos', duration: 30, description: '30 segundos - ambos tobillos' },
   { name: 'Elevación de rodillas', duration: 45, description: '45 segundos - marcha en el sitio' },
   { name: 'Talones al glúteo', duration: 45, description: '45 segundos - alternando piernas' },
   { name: 'Zancadas dinámicas', duration: 60, description: '1 minuto - 10 repeticiones' },
@@ -43,20 +47,28 @@ const SanSilvestreApp = () => {
   const [isWarmUpActive, setIsWarmUpActive] = useState(false);
   
   const [isRunning, setIsRunning] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [runTime, setRunTime] = useState(0);
   const [distance, setDistance] = useState(0);
   const [currentPace, setCurrentPace] = useState(0);
   const [avgPace, setAvgPace] = useState(0);
   const [coordinates, setCoordinates] = useState([]);
   const [currentSpeed, setCurrentSpeed] = useState(0);
+  const [maxSpeed, setMaxSpeed] = useState(0);
+  const [calories, setCalories] = useState(0);
+  
+  // Para mostrar el resumen final
+  const [finalSummary, setFinalSummary] = useState(null);
   
   const watchIdRef = useRef(null);
   const lastPositionRef = useRef(null);
   const runIntervalRef = useRef(null);
+  const lastUpdateTimeRef = useRef(Date.now());
   
   const { plan, daysUntilRace, weeksUntilRace } = generateTrainingPlan();
   const currentWeek = plan[Math.min(plan.length - 1, Math.floor((plan.length - weeksUntilRace)))];
 
+  // Timer de calentamiento
   useEffect(() => {
     let interval;
     if (isWarmUpActive && warmUpTimer > 0) {
@@ -67,6 +79,7 @@ const SanSilvestreApp = () => {
             if (warmUpIndex < warmUpExercises.length - 1) {
               setWarmUpIndex(warmUpIndex + 1);
               setWarmUpTimer(warmUpExercises[warmUpIndex + 1].duration);
+              setIsWarmUpActive(true);
             }
             return 0;
           }
@@ -77,40 +90,77 @@ const SanSilvestreApp = () => {
     return () => clearInterval(interval);
   }, [isWarmUpActive, warmUpTimer, warmUpIndex]);
 
+  // GPS tracking mejorado con actualizaciones más frecuentes
   useEffect(() => {
-    if (isRunning) {
+    if (isRunning && !isPaused) {
       if ('geolocation' in navigator) {
         watchIdRef.current = navigator.geolocation.watchPosition(
           (position) => {
-            const { latitude, longitude, speed } = position.coords;
-            const newCoord = { lat: latitude, lng: longitude, timestamp: Date.now() };
+            const { latitude, longitude, speed, accuracy } = position.coords;
+            const now = Date.now();
+            
+            // Solo procesar si la precisión es aceptable (menos de 50 metros)
+            if (accuracy > 50) return;
+            
+            const newCoord = { 
+              lat: latitude, 
+              lng: longitude, 
+              timestamp: now,
+              speed: speed,
+              accuracy: accuracy
+            };
             
             setCoordinates(prev => [...prev, newCoord]);
             
+            // Calcular distancia incremental
             if (lastPositionRef.current) {
-              const dist = calculateDistance(
-                lastPositionRef.current.lat,
-                lastPositionRef.current.lng,
-                latitude,
-                longitude
-              );
-              setDistance(prev => prev + dist);
+              const timeDiff = (now - lastUpdateTimeRef.current) / 1000; // segundos
+              
+              // Solo calcular si han pasado al menos 2 segundos
+              if (timeDiff >= 2) {
+                const dist = calculateDistance(
+                  lastPositionRef.current.lat,
+                  lastPositionRef.current.lng,
+                  latitude,
+                  longitude
+                );
+                
+                // Filtrar distancias irreales (más de 100m en 2 segundos = 180 km/h)
+                if (dist < 0.1) {
+                  setDistance(prev => prev + dist);
+                  lastUpdateTimeRef.current = now;
+                }
+              }
             }
             
             lastPositionRef.current = newCoord;
             
-            if (speed !== null && speed > 0) {
-              setCurrentSpeed((speed * 3.6).toFixed(1));
+            // Velocidad instantánea en km/h
+            if (speed !== null && speed >= 0) {
+              const speedKmh = speed * 3.6;
+              setCurrentSpeed(speedKmh);
+              setMaxSpeed(prev => Math.max(prev, speedKmh));
             }
           },
           (error) => console.error('GPS Error:', error),
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+          { 
+            enableHighAccuracy: true, 
+            maximumAge: 1000, 
+            timeout: 5000 
+          }
         );
       }
       
+      // Timer del cronómetro
       runIntervalRef.current = setInterval(() => {
         setRunTime(prev => prev + 1);
       }, 1000);
+    } else if (isPaused) {
+      // Pausar GPS pero mantener datos
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     }
     
     return () => {
@@ -121,33 +171,42 @@ const SanSilvestreApp = () => {
         clearInterval(runIntervalRef.current);
       }
     };
-  }, [isRunning]);
+  }, [isRunning, isPaused]);
 
+  // Calcular ritmo y calorías en tiempo real
   useEffect(() => {
     if (distance > 0 && runTime > 0) {
       const timeInMinutes = runTime / 60;
       const paceMinPerKm = timeInMinutes / distance;
       setAvgPace(paceMinPerKm);
       
+      // Calcular ritmo actual (último kilómetro)
       if (coordinates.length > 1) {
-        const lastMinuteCoords = coordinates.filter(
-          c => Date.now() - c.timestamp < 60000
+        const last30Seconds = coordinates.filter(
+          c => Date.now() - c.timestamp < 30000
         );
-        if (lastMinuteCoords.length > 1) {
-          const recentDist = lastMinuteCoords.reduce((acc, coord, idx) => {
+        
+        if (last30Seconds.length > 1) {
+          const recentDist = last30Seconds.reduce((acc, coord, idx) => {
             if (idx === 0) return 0;
             return acc + calculateDistance(
-              lastMinuteCoords[idx - 1].lat,
-              lastMinuteCoords[idx - 1].lng,
+              last30Seconds[idx - 1].lat,
+              last30Seconds[idx - 1].lng,
               coord.lat,
               coord.lng
             );
           }, 0);
-          if (recentDist > 0) {
-            setCurrentPace(1 / recentDist);
+          
+          const recentTime = (last30Seconds[last30Seconds.length - 1].timestamp - last30Seconds[0].timestamp) / 1000 / 60;
+          
+          if (recentDist > 0 && recentTime > 0) {
+            setCurrentPace(recentTime / recentDist);
           }
         }
       }
+      
+      // Estimación de calorías (aproximado: 60 kcal por km para persona promedio)
+      setCalories(Math.round(distance * 60));
     }
   }, [distance, runTime, coordinates]);
 
@@ -174,7 +233,7 @@ const SanSilvestreApp = () => {
   };
 
   const formatPace = (pace) => {
-    if (!pace || pace === Infinity) return '--:--';
+    if (!pace || pace === Infinity || pace < 0) return '--:--';
     const mins = Math.floor(pace);
     const secs = Math.floor((pace - mins) * 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -190,17 +249,38 @@ const SanSilvestreApp = () => {
   const skipWarmUp = () => {
     setScreen('running');
     setIsRunning(true);
+    setIsPaused(false);
   };
 
   const finishWarmUp = () => {
     setScreen('running');
     setIsRunning(true);
+    setIsPaused(false);
+  };
+
+  const togglePause = () => {
+    setIsPaused(!isPaused);
   };
 
   const stopRun = () => {
     setIsRunning(false);
-    alert(`Entrenamiento completado\n\nDistancia: ${distance.toFixed(2)} km\nTiempo: ${formatTime(runTime)}\nRitmo promedio: ${formatPace(avgPace)} min/km`);
+    setIsPaused(false);
     
+    // Guardar resumen
+    const summary = {
+      distance: distance.toFixed(2),
+      time: formatTime(runTime),
+      avgPace: formatPace(avgPace),
+      maxSpeed: maxSpeed.toFixed(1),
+      calories: calories,
+      coordinates: coordinates
+    };
+    
+    setFinalSummary(summary);
+    setScreen('summary');
+  };
+
+  const resetAndGoHome = () => {
     setScreen('home');
     setRunTime(0);
     setDistance(0);
@@ -208,9 +288,14 @@ const SanSilvestreApp = () => {
     setCurrentPace(0);
     setAvgPace(0);
     setCurrentSpeed(0);
+    setMaxSpeed(0);
+    setCalories(0);
     lastPositionRef.current = null;
+    lastUpdateTimeRef.current = Date.now();
+    setFinalSummary(null);
   };
 
+  // PANTALLA HOME
   if (screen === 'home') {
     return (
       <div style={styles.container}>
@@ -264,6 +349,7 @@ const SanSilvestreApp = () => {
     );
   }
 
+  // PANTALLA CALENTAMIENTO
   if (screen === 'warmup') {
     const currentExercise = warmUpExercises[warmUpIndex];
     const progress = ((warmUpExercises[warmUpIndex].duration - warmUpTimer) / warmUpExercises[warmUpIndex].duration) * 100;
@@ -299,7 +385,7 @@ const SanSilvestreApp = () => {
                 {isWarmUpActive ? 'Pausar' : 'Continuar'}
               </button>
               
-              {warmUpIndex === warmUpExercises.length - 1 && (
+              {warmUpIndex === warmUpExercises.length - 1 && warmUpTimer === 0 && (
                 <button onClick={finishWarmUp} style={styles.successButton}>
                   Comenzar Carrera
                 </button>
@@ -315,16 +401,17 @@ const SanSilvestreApp = () => {
     );
   }
 
+  // PANTALLA CORRIENDO
   if (screen === 'running') {
     return (
-      <div style={{...styles.container, background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'}}>
+      <div style={{...styles.container, background: isPaused ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' : 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'}}>
         <style>{cssStyles}</style>
         
         <div style={styles.content}>
           <div style={styles.card}>
             <div style={styles.mainTimer}>
               <div style={styles.mainTimerValue}>{formatTime(runTime)}</div>
-              <div style={styles.mainTimerLabel}>Tiempo transcurrido</div>
+              <div style={styles.mainTimerLabel}>{isPaused ? 'PAUSADO' : 'Tiempo transcurrido'}</div>
             </div>
 
             <div style={styles.statsGrid}>
@@ -334,40 +421,137 @@ const SanSilvestreApp = () => {
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Ritmo promedio</div>
-                <div style={styles.runStatValue}>{formatPace(avgPace)}</div>
+                <div style={styles.runStatLabel}>Calorías</div>
+                <div style={styles.runStatValue}>{calories} kcal</div>
               </div>
             </div>
 
             <div style={styles.statsGrid}>
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Ritmo actual</div>
-                <div style={styles.runStatValue}>{formatPace(currentPace)}</div>
+                <div style={styles.runStatLabel}>Ritmo promedio</div>
+                <div style={styles.runStatValue}>{formatPace(avgPace)}</div>
+                <div style={styles.runStatUnit}>min/km</div>
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Velocidad</div>
-                <div style={styles.runStatValue}>{currentSpeed || '0.0'} km/h</div>
+                <div style={styles.runStatLabel}>Ritmo actual</div>
+                <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#4facfe'}}>
+                  {isPaused ? '--:--' : formatPace(currentPace)}
+                </div>
+                <div style={styles.runStatUnit}>min/km</div>
+              </div>
+            </div>
+
+            <div style={styles.statsGrid}>
+              <div style={styles.runStatBox}>
+                <div style={styles.runStatLabel}>Velocidad actual</div>
+                <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#48bb78'}}>
+                  {isPaused ? '--' : currentSpeed.toFixed(1)}
+                </div>
+                <div style={styles.runStatUnit}>km/h</div>
+              </div>
+              
+              <div style={styles.runStatBox}>
+                <div style={styles.runStatLabel}>Velocidad máx</div>
+                <div style={styles.runStatValue}>{maxSpeed.toFixed(1)}</div>
+                <div style={styles.runStatUnit}>km/h</div>
               </div>
             </div>
 
             <div style={styles.gpsInfo}>
-              GPS: {coordinates.length} puntos registrados
+              GPS: {coordinates.length} puntos | Precisión: {coordinates.length > 0 ? Math.round(coordinates[coordinates.length - 1].accuracy) + 'm' : '--'}
             </div>
           </div>
 
           <div style={styles.buttonGroup}>
             <button
-              onClick={() => setIsRunning(!isRunning)}
-              style={styles.secondaryButton}
+              onClick={togglePause}
+              style={isPaused ? styles.successButton : styles.secondaryButton}
             >
-              {isRunning ? 'Pausar' : 'Continuar'}
+              {isPaused ? 'Continuar' : 'Pausar'}
             </button>
             
             <button onClick={stopRun} style={styles.dangerButton}>
               Finalizar
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA RESUMEN CON MAPA
+  if (screen === 'summary' && finalSummary) {
+    const bounds = coordinates.length > 0 ? {
+      minLat: Math.min(...coordinates.map(c => c.lat)),
+      maxLat: Math.max(...coordinates.map(c => c.lat)),
+      minLng: Math.min(...coordinates.map(c => c.lng)),
+      maxLng: Math.max(...coordinates.map(c => c.lng))
+    } : null;
+
+    const centerLat = bounds ? (bounds.minLat + bounds.maxLat) / 2 : 0;
+    const centerLng = bounds ? (bounds.minLng + bounds.maxLng) / 2 : 0;
+
+    return (
+      <div style={styles.container}>
+        <style>{cssStyles}</style>
+        
+        <div style={styles.content}>
+          <div style={styles.card}>
+            <h2 style={styles.sectionTitle}>Entrenamiento Completado</h2>
+            
+            <div style={styles.summaryGrid}>
+              <div style={styles.summaryBox}>
+                <div style={styles.summaryLabel}>Distancia</div>
+                <div style={styles.summaryValue}>{finalSummary.distance} km</div>
+              </div>
+              
+              <div style={styles.summaryBox}>
+                <div style={styles.summaryLabel}>Tiempo</div>
+                <div style={styles.summaryValue}>{finalSummary.time}</div>
+              </div>
+              
+              <div style={styles.summaryBox}>
+                <div style={styles.summaryLabel}>Ritmo promedio</div>
+                <div style={styles.summaryValue}>{finalSummary.avgPace}</div>
+              </div>
+              
+              <div style={styles.summaryBox}>
+                <div style={styles.summaryLabel}>Velocidad máx</div>
+                <div style={styles.summaryValue}>{finalSummary.maxSpeed} km/h</div>
+              </div>
+              
+              <div style={styles.summaryBox}>
+                <div style={styles.summaryLabel}>Calorías</div>
+                <div style={styles.summaryValue}>{finalSummary.calories} kcal</div>
+              </div>
+              
+              <div style={styles.summaryBox}>
+                <div style={styles.summaryLabel}>Puntos GPS</div>
+                <div style={styles.summaryValue}>{coordinates.length}</div>
+              </div>
+            </div>
+          </div>
+
+          {coordinates.length > 1 && (
+            <div style={styles.card}>
+              <h3 style={styles.sectionTitle}>Mapa de la Ruta</h3>
+              <div style={styles.mapContainer}>
+                <iframe
+                  style={styles.mapFrame}
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}&layer=mapnik&marker=${centerLat},${centerLng}`}
+                  title="Mapa de la ruta"
+                />
+              </div>
+              <div style={styles.mapNote}>
+                La ruta detallada se ha registrado con {coordinates.length} puntos GPS
+              </div>
+            </div>
+          )}
+
+          <button onClick={resetAndGoHome} style={styles.primaryButton}>
+            Volver al Inicio
+          </button>
         </div>
       </div>
     );
@@ -597,6 +781,7 @@ const styles = {
     fontSize: '14px',
     color: '#718096',
     marginTop: '8px',
+    fontWeight: '600',
   },
   runStatBox: {
     background: '#f7fafc',
@@ -614,6 +799,11 @@ const styles = {
     fontWeight: '700',
     color: '#4facfe',
   },
+  runStatUnit: {
+    fontSize: '11px',
+    color: '#a0aec0',
+    marginTop: '2px',
+  },
   gpsInfo: {
     fontSize: '12px',
     color: '#718096',
@@ -623,6 +813,45 @@ const styles = {
     background: '#f7fafc',
     borderRadius: '8px',
   },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '12px',
+  },
+  summaryBox: {
+    background: '#f7fafc',
+    borderRadius: '12px',
+    padding: '16px',
+    textAlign: 'center',
+  },
+  summaryLabel: {
+    fontSize: '12px',
+    color: '#718096',
+    marginBottom: '8px',
+  },
+  summaryValue: {
+    fontSize: '22px',
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  mapContainer: {
+    width: '100%',
+    height: '300px',
+    borderRadius: '12px',
+    overflow: 'hidden',
+    marginBottom: '12px',
+  },
+  mapFrame: {
+    width: '100%',
+    height: '100%',
+    border: 'none',
+  },
+  mapNote: {
+    fontSize: '12px',
+    color: '#718096',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
 };
 
 const cssStyles = `
@@ -630,7 +859,7 @@ const cssStyles = `
     transform: scale(0.98);
   }
   button:hover {
-    opacity: 0.9;
+    opacity: 0.9);
   }
 `;
 
