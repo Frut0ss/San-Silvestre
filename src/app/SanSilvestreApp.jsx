@@ -1,6 +1,130 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const generateTrainingPlan = () => {
+// Traducciones
+const translations = {
+  es: {
+    title: 'San Silvestre Murcia',
+    subtitle: 'Entrenamiento de Elisa',
+    daysUntilRace: 'días hasta la carrera',
+    thisWeek: 'Esta Semana',
+    targetDistance: 'Distancia objetivo',
+    sessions: 'Sesiones',
+    startTraining: 'Iniciar Entrenamiento',
+    completePlan: 'Plan Completo',
+    week: 'Semana',
+    warmup: 'Calentamiento',
+    exercise: 'Ejercicio',
+    of: 'de',
+    pause: 'Pausar',
+    continue: 'Continuar',
+    startRace: 'Comenzar Carrera',
+    skip: 'Saltar',
+    time: 'Tiempo',
+    paused: 'PAUSADO',
+    distance: 'Distancia',
+    maxSpeed: 'Velocidad máx',
+    avgPace: 'Ritmo promedio',
+    currentPace: 'Ritmo actual',
+    currentSpeed: 'Velocidad actual',
+    gpsStatus: 'Estado GPS',
+    active: 'Activo',
+    finish: 'Finalizar',
+    trainingCompleted: 'Entrenamiento Completado',
+    routeMap: 'Ruta del Entrenamiento',
+    drawingRoute: 'Dibujando ruta...',
+    routeCompleted: 'Ruta completada',
+    backToHome: 'Volver al Inicio',
+    session: 'Sesión',
+    weekDescriptions: {
+      race: 'Semana de carrera - reducir intensidad',
+      tapering: 'Semana de ajuste fino',
+      building: 'Construcción de base'
+    },
+    sessionTypes: {
+      continuous: 'Carrera continua suave',
+      intervals: 'Intervalos 1min rápido / 2min suave',
+      progressive: 'Carrera a ritmo progresivo',
+      long: 'Carrera larga y suave'
+    }
+  },
+  en: {
+    title: 'San Silvestre Murcia',
+    subtitle: "Elisa's Training",
+    daysUntilRace: 'days until race',
+    thisWeek: 'This Week',
+    targetDistance: 'Target distance',
+    sessions: 'Sessions',
+    startTraining: 'Start Training',
+    completePlan: 'Complete Plan',
+    week: 'Week',
+    warmup: 'Warm-up',
+    exercise: 'Exercise',
+    of: 'of',
+    pause: 'Pause',
+    continue: 'Continue',
+    startRace: 'Start Race',
+    skip: 'Skip',
+    time: 'Time',
+    paused: 'PAUSED',
+    distance: 'Distance',
+    maxSpeed: 'Max speed',
+    avgPace: 'Average pace',
+    currentPace: 'Current pace',
+    currentSpeed: 'Current speed',
+    gpsStatus: 'GPS Status',
+    active: 'Active',
+    finish: 'Finish',
+    trainingCompleted: 'Training Completed',
+    routeMap: 'Training Route',
+    drawingRoute: 'Drawing route...',
+    routeCompleted: 'Route completed',
+    backToHome: 'Back to Home',
+    session: 'Session',
+    weekDescriptions: {
+      race: 'Race week - reduce intensity',
+      tapering: 'Tapering week',
+      building: 'Base building'
+    },
+    sessionTypes: {
+      continuous: 'Easy continuous run',
+      intervals: 'Intervals 1min fast / 2min easy',
+      progressive: 'Progressive pace run',
+      long: 'Long easy run'
+    }
+  }
+};
+
+const warmUpExercisesData = {
+  es: [
+    { name: 'Rotación de tobillos', duration: 30, description: '30 segundos - círculos con ambos tobillos' },
+    { name: 'Rotación de rodillas', duration: 30, description: '30 segundos - círculos suaves' },
+    { name: 'Rotación de cadera', duration: 30, description: '30 segundos - círculos amplios' },
+    { name: 'Círculos de brazos', duration: 30, description: '30 segundos - adelante y atrás' },
+    { name: 'Estiramiento de cuádriceps', duration: 30, description: '30 segundos - mantener cada pierna' },
+    { name: 'Estiramiento de gemelos', duration: 30, description: '30 segundos - ambas piernas' },
+    { name: 'Caminar ligero', duration: 120, description: '2 minutos caminando a paso ligero' },
+    { name: 'Elevación de rodillas', duration: 45, description: '45 segundos - marcha en el sitio' },
+    { name: 'Talones al glúteo', duration: 45, description: '45 segundos - alternando piernas' },
+    { name: 'Zancadas dinámicas', duration: 60, description: '1 minuto - 10 repeticiones' },
+    { name: 'Trote suave', duration: 180, description: '3 minutos a ritmo muy suave' }
+  ],
+  en: [
+    { name: 'Ankle rotations', duration: 30, description: '30 seconds - circles with both ankles' },
+    { name: 'Knee rotations', duration: 30, description: '30 seconds - gentle circles' },
+    { name: 'Hip rotations', duration: 30, description: '30 seconds - wide circles' },
+    { name: 'Arm circles', duration: 30, description: '30 seconds - forward and back' },
+    { name: 'Quad stretch', duration: 30, description: '30 seconds - hold each leg' },
+    { name: 'Calf stretch', duration: 30, description: '30 seconds - both legs' },
+    { name: 'Light walking', duration: 120, description: '2 minutes walking at brisk pace' },
+    { name: 'Knee raises', duration: 45, description: '45 seconds - march in place' },
+    { name: 'Heel to glute', duration: 45, description: '45 seconds - alternating legs' },
+    { name: 'Dynamic lunges', duration: 60, description: '1 minute - 10 repetitions' },
+    { name: 'Easy jog', duration: 180, description: '3 minutes at very easy pace' }
+  ]
+};
+
+const generateTrainingPlan = (lang) => {
+  const t = translations[lang];
   const today = new Date();
   const raceDate = new Date('2025-12-31');
   const daysUntilRace = Math.ceil((raceDate - today) / (1000 * 60 * 60 * 24));
@@ -19,12 +143,12 @@ const generateTrainingPlan = () => {
     for (let i = 1; i <= numSessions; i++) {
       sessions.push({
         id: `week${week}_session${i}`,
-        name: `Sesión ${i}`,
+        name: `${t.session} ${i}`,
         distance: distance.toFixed(1),
-        description: i === 1 ? 'Carrera continua suave' : 
-                    i === 2 ? 'Intervalos 1min rápido / 2min suave' :
-                    i === 3 ? 'Carrera a ritmo progresivo' :
-                    'Carrera larga y suave',
+        description: i === 1 ? t.sessionTypes.continuous : 
+                    i === 2 ? t.sessionTypes.intervals :
+                    i === 3 ? t.sessionTypes.progressive :
+                    t.sessionTypes.long,
         completed: false
       });
     }
@@ -33,32 +157,22 @@ const generateTrainingPlan = () => {
       week,
       distance: distance.toFixed(1),
       sessions: sessions,
-      description: week === weeksUntilRace ? 'Semana de carrera - reducir intensidad' : 
-                   week > weeksUntilRace - 2 ? 'Semana de ajuste fino' : 'Construcción de base'
+      description: week === weeksUntilRace ? t.weekDescriptions.race : 
+                   week > weeksUntilRace - 2 ? t.weekDescriptions.tapering : t.weekDescriptions.building
     });
   }
   
   return { plan, daysUntilRace, weeksUntilRace };
 };
 
-const warmUpExercises = [
-  { name: 'Rotación de tobillos', duration: 30, description: '30 segundos - círculos con ambos tobillos' },
-  { name: 'Rotación de rodillas', duration: 30, description: '30 segundos - círculos suaves' },
-  { name: 'Rotación de cadera', duration: 30, description: '30 segundos - círculos amplios' },
-  { name: 'Círculos de brazos', duration: 30, description: '30 segundos - adelante y atrás' },
-  { name: 'Estiramiento de cuádriceps', duration: 30, description: '30 segundos - mantener cada pierna' },
-  { name: 'Estiramiento de gemelos', duration: 30, description: '30 segundos - ambas piernas' },
-  { name: 'Caminar ligero', duration: 120, description: '2 minutos caminando a paso ligero' },
-  { name: 'Elevación de rodillas', duration: 45, description: '45 segundos - marcha en el sitio' },
-  { name: 'Talones al glúteo', duration: 45, description: '45 segundos - alternando piernas' },
-  { name: 'Zancadas dinámicas', duration: 60, description: '1 minuto - 10 repeticiones' },
-  { name: 'Trote suave', duration: 180, description: '3 minutos a ritmo muy suave' }
-];
-
 const SanSilvestreApp = () => {
+  const [language, setLanguage] = useState('es');
   const [screen, setScreen] = useState('home');
   const [expandedWeek, setExpandedWeek] = useState(null);
   const [completedSessions, setCompletedSessions] = useState({});
+  
+  const t = translations[language];
+  const warmUpExercises = warmUpExercisesData[language];
   
   const [warmUpIndex, setWarmUpIndex] = useState(0);
   const [warmUpTimer, setWarmUpTimer] = useState(0);
@@ -83,9 +197,23 @@ const SanSilvestreApp = () => {
   const lastUpdateTimeRef = useRef(Date.now());
   const canvasRef = useRef(null);
   
-  const { plan, daysUntilRace, weeksUntilRace } = generateTrainingPlan();
-  const currentWeekIndex = Math.min(plan.length - 1, Math.floor((plan.length - weeksUntilRace)));
+  const { plan, daysUntilRace, weeksUntilRace } = generateTrainingPlan(language);
+  const currentWeekIndex = Math.min(plan.length - 1, Math.floor(plan.length - weeksUntilRace));
   const currentWeek = plan[currentWeekIndex];
+
+  // Cargar idioma desde localStorage
+  useEffect(() => {
+    const savedLang = localStorage.getItem('sanSilvestreLanguage');
+    if (savedLang && (savedLang === 'es' || savedLang === 'en')) {
+      setLanguage(savedLang);
+    }
+  }, []);
+
+  // Guardar idioma en localStorage
+  const changeLanguage = (lang) => {
+    setLanguage(lang);
+    localStorage.setItem('sanSilvestreLanguage', lang);
+  };
 
   // Cargar sesiones completadas desde localStorage
   useEffect(() => {
@@ -135,7 +263,7 @@ const SanSilvestreApp = () => {
       // Limpiar canvas
       ctx.clearRect(0, 0, width, height);
       
-      // Dibujar fondo de mapa simple
+      // Dibujar fondo
       ctx.fillStyle = '#f0f0f0';
       ctx.fillRect(0, 0, width, height);
       
@@ -157,7 +285,7 @@ const SanSilvestreApp = () => {
 
       // Animar la ruta
       let progress = 0;
-      const animationDuration = 3000; // 3 segundos
+      const animationDuration = 3000;
       const startTime = Date.now();
 
       const animate = () => {
@@ -167,7 +295,6 @@ const SanSilvestreApp = () => {
         const pointsToShow = Math.floor(coordinates.length * progress);
         
         if (pointsToShow > 1) {
-          // Dibujar ruta
           ctx.strokeStyle = '#3b82f6';
           ctx.lineWidth = 3;
           ctx.lineCap = 'round';
@@ -213,6 +340,7 @@ const SanSilvestreApp = () => {
     }
   }, [screen, coordinates]);
 
+  // Lógica de calentamiento
   useEffect(() => {
     let interval;
     if (isWarmUpActive && warmUpTimer > 0) {
@@ -221,7 +349,7 @@ const SanSilvestreApp = () => {
           if (prev <= 1) {
             setIsWarmUpActive(false);
             if (warmUpIndex < warmUpExercises.length - 1) {
-              setWarmUpIndex(warmUpIndex + 1);
+              setWarmUpIndex(prevIndex => prevIndex + 1);
               setWarmUpTimer(warmUpExercises[warmUpIndex + 1].duration);
               setIsWarmUpActive(true);
             }
@@ -232,8 +360,9 @@ const SanSilvestreApp = () => {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isWarmUpActive, warmUpTimer, warmUpIndex]);
+  }, [isWarmUpActive, warmUpTimer, warmUpIndex, warmUpExercises]);
 
+  // Geolocalización y carrera
   useEffect(() => {
     if (isRunning && !isPaused) {
       if ('geolocation' in navigator) {
@@ -248,8 +377,8 @@ const SanSilvestreApp = () => {
               lat: latitude, 
               lng: longitude, 
               timestamp: now,
-              speed: speed,
-              accuracy: accuracy
+              speed,
+              accuracy
             };
             
             setCoordinates(prev => [...prev, newCoord]);
@@ -265,7 +394,7 @@ const SanSilvestreApp = () => {
                   longitude
                 );
                 
-                if (dist < 0.1) {
+                if (dist > 0.001 && dist < 0.1) {
                   setDistance(prev => prev + dist);
                   lastUpdateTimeRef.current = now;
                 }
@@ -281,11 +410,7 @@ const SanSilvestreApp = () => {
             }
           },
           (error) => console.error('GPS Error:', error),
-          { 
-            enableHighAccuracy: true, 
-            maximumAge: 1000, 
-            timeout: 5000 
-          }
+          { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
         );
       }
       
@@ -309,6 +434,7 @@ const SanSilvestreApp = () => {
     };
   }, [isRunning, isPaused]);
 
+  // Calcular ritmo
   useEffect(() => {
     if (distance > 0 && runTime > 0) {
       const timeInMinutes = runTime / 60;
@@ -402,7 +528,7 @@ const SanSilvestreApp = () => {
       time: formatTime(runTime),
       avgPace: formatPace(avgPace),
       maxSpeed: maxSpeed.toFixed(1),
-      coordinates: coordinates
+      coordinates
     };
     
     setFinalSummary(summary);
@@ -431,26 +557,48 @@ const SanSilvestreApp = () => {
         <style>{cssStyles}</style>
         
         <div style={styles.content}>
+          {/* Selector de idioma */}
+          <div style={styles.languageSelector}>
+            <button
+              onClick={() => changeLanguage('es')}
+              style={{
+                ...styles.langButton,
+                ...(language === 'es' ? styles.langButtonActive : {})
+              }}
+            >
+              ES
+            </button>
+            <button
+              onClick={() => changeLanguage('en')}
+              style={{
+                ...styles.langButton,
+                ...(language === 'en' ? styles.langButtonActive : {})
+              }}
+            >
+              EN
+            </button>
+          </div>
+
           <div style={styles.card}>
-            <h1 style={styles.title}>San Silvestre Murcia</h1>
-            <p style={styles.subtitle}>Entrenamiento de Elisa</p>
+            <h1 style={styles.title}>{t.title}</h1>
+            <p style={styles.subtitle}>{t.subtitle}</p>
             
             <div style={styles.countdown}>
               <div style={styles.countdownNumber}>{daysUntilRace}</div>
-              <div style={styles.countdownLabel}>días hasta la carrera</div>
+              <div style={styles.countdownLabel}>{t.daysUntilRace}</div>
             </div>
           </div>
 
           {currentWeek && (
             <div style={styles.card}>
-              <h2 style={styles.sectionTitle}>Esta Semana</h2>
+              <h2 style={styles.sectionTitle}>{t.thisWeek}</h2>
               <div style={styles.statsGrid}>
                 <div style={styles.statBox}>
-                  <div style={styles.statLabel}>Distancia objetivo</div>
+                  <div style={styles.statLabel}>{t.targetDistance}</div>
                   <div style={styles.statValue}>{currentWeek.distance} km</div>
                 </div>
                 <div style={styles.statBox}>
-                  <div style={styles.statLabel}>Sesiones</div>
+                  <div style={styles.statLabel}>{t.sessions}</div>
                   <div style={styles.statValue}>{currentWeek.sessions.length}</div>
                 </div>
               </div>
@@ -459,11 +607,11 @@ const SanSilvestreApp = () => {
           )}
 
           <button onClick={startWarmUp} style={styles.primaryButton}>
-            Iniciar Entrenamiento
+            {t.startTraining}
           </button>
 
           <div style={styles.card}>
-            <h3 style={styles.sectionTitle}>Plan Completo</h3>
+            <h3 style={styles.sectionTitle}>{t.completePlan}</h3>
             <div style={styles.planList}>
               {plan.map((week, idx) => (
                 <div key={idx}>
@@ -471,7 +619,7 @@ const SanSilvestreApp = () => {
                     style={styles.planItem}
                     onClick={() => setExpandedWeek(expandedWeek === week.week ? null : week.week)}
                   >
-                    <span>Semana {week.week}</span>
+                    <span>{t.week} {week.week}</span>
                     <span style={styles.planDistance}>{week.distance} km</span>
                   </div>
                   
@@ -517,7 +665,7 @@ const SanSilvestreApp = () => {
         
         <div style={styles.content}>
           <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>Calentamiento</h2>
+            <h2 style={styles.sectionTitle}>{t.warmup}</h2>
             
             <div style={styles.timerSection}>
               <div style={styles.timerDisplay}>{warmUpTimer}s</div>
@@ -525,7 +673,7 @@ const SanSilvestreApp = () => {
                 <div style={{...styles.progressFill, width: `${progress}%`}} />
               </div>
               <div style={styles.exerciseCount}>
-                Ejercicio {warmUpIndex + 1} de {warmUpExercises.length}
+                {t.exercise} {warmUpIndex + 1} {t.of} {warmUpExercises.length}
               </div>
             </div>
 
@@ -539,17 +687,17 @@ const SanSilvestreApp = () => {
                 onClick={() => setIsWarmUpActive(!isWarmUpActive)}
                 style={styles.secondaryButton}
               >
-                {isWarmUpActive ? 'Pausar' : 'Continuar'}
+                {isWarmUpActive ? t.pause : t.continue}
               </button>
               
               {warmUpIndex === warmUpExercises.length - 1 && warmUpTimer === 0 && (
                 <button onClick={finishWarmUp} style={styles.successButton}>
-                  Comenzar Carrera
+                  {t.startRace}
                 </button>
               )}
               
               <button onClick={skipWarmUp} style={styles.skipButton}>
-                Saltar
+                {t.skip}
               </button>
             </div>
           </div>
@@ -568,30 +716,30 @@ const SanSilvestreApp = () => {
           <div style={styles.card}>
             <div style={styles.mainTimer}>
               <div style={styles.mainTimerValue}>{formatTime(runTime)}</div>
-              <div style={styles.mainTimerLabel}>{isPaused ? 'PAUSADO' : 'Tiempo'}</div>
+              <div style={styles.mainTimerLabel}>{isPaused ? t.paused : t.time}</div>
             </div>
 
             <div style={styles.statsGrid}>
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Distancia</div>
+                <div style={styles.runStatLabel}>{t.distance}</div>
                 <div style={styles.runStatValue}>{distance.toFixed(2)} km</div>
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Velocidad máx</div>
+                <div style={styles.runStatLabel}>{t.maxSpeed}</div>
                 <div style={styles.runStatValue}>{maxSpeed.toFixed(1)} km/h</div>
               </div>
             </div>
 
             <div style={styles.statsGrid}>
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Ritmo promedio</div>
+                <div style={styles.runStatLabel}>{t.avgPace}</div>
                 <div style={styles.runStatValue}>{formatPace(avgPace)}</div>
                 <div style={styles.runStatUnit}>min/km</div>
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Ritmo actual</div>
+                <div style={styles.runStatLabel}>{t.currentPace}</div>
                 <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#2d3748'}}>
                   {isPaused ? '--:--' : formatPace(currentPace)}
                 </div>
@@ -601,16 +749,16 @@ const SanSilvestreApp = () => {
 
             <div style={styles.statsGrid}>
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Velocidad actual</div>
+                <div style={styles.runStatLabel}>{t.currentSpeed}</div>
                 <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#2d3748'}}>
                   {isPaused ? '--' : currentSpeed.toFixed(1)} km/h
                 </div>
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Estado GPS</div>
+                <div style={styles.runStatLabel}>{t.gpsStatus}</div>
                 <div style={{...styles.runStatValue, fontSize: '16px'}}>
-                  {isPaused ? 'Pausado' : 'Activo'}
+                  {isPaused ? t.paused : t.active}
                 </div>
               </div>
             </div>
@@ -621,11 +769,11 @@ const SanSilvestreApp = () => {
               onClick={togglePause}
               style={isPaused ? styles.successButton : styles.secondaryButton}
             >
-              {isPaused ? 'Continuar' : 'Pausar'}
+              {isPaused ? t.continue : t.pause}
             </button>
             
             <button onClick={stopRun} style={styles.dangerButton}>
-              Finalizar
+              {t.finish}
             </button>
           </div>
         </div>
@@ -641,26 +789,26 @@ const SanSilvestreApp = () => {
         
         <div style={styles.content}>
           <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>Entrenamiento Completado</h2>
+            <h2 style={styles.sectionTitle}>{t.trainingCompleted}</h2>
             
             <div style={styles.summaryGrid}>
               <div style={styles.summaryBox}>
-                <div style={styles.summaryLabel}>Distancia</div>
+                <div style={styles.summaryLabel}>{t.distance}</div>
                 <div style={styles.summaryValue}>{finalSummary.distance} km</div>
               </div>
               
               <div style={styles.summaryBox}>
-                <div style={styles.summaryLabel}>Tiempo</div>
+                <div style={styles.summaryLabel}>{t.time}</div>
                 <div style={styles.summaryValue}>{finalSummary.time}</div>
               </div>
               
               <div style={styles.summaryBox}>
-                <div style={styles.summaryLabel}>Ritmo promedio</div>
+                <div style={styles.summaryLabel}>{t.avgPace}</div>
                 <div style={styles.summaryValue}>{finalSummary.avgPace}</div>
               </div>
               
               <div style={styles.summaryBox}>
-                <div style={styles.summaryLabel}>Velocidad máx</div>
+                <div style={styles.summaryLabel}>{t.maxSpeed}</div>
                 <div style={styles.summaryValue}>{finalSummary.maxSpeed} km/h</div>
               </div>
             </div>
@@ -668,7 +816,7 @@ const SanSilvestreApp = () => {
 
           {coordinates.length > 1 && (
             <div style={styles.card}>
-              <h3 style={styles.sectionTitle}>Ruta del Entrenamiento</h3>
+              <h3 style={styles.sectionTitle}>{t.routeMap}</h3>
               <canvas
                 ref={canvasRef}
                 width={460}
@@ -676,13 +824,13 @@ const SanSilvestreApp = () => {
                 style={styles.canvas}
               />
               <div style={styles.mapNote}>
-                {routeProgress < 1 ? 'Dibujando ruta...' : 'Ruta completada'}
+                {routeProgress < 1 ? t.drawingRoute : t.routeCompleted}
               </div>
             </div>
           )}
 
           <button onClick={resetAndGoHome} style={styles.primaryButton}>
-            Volver al Inicio
+            {t.backToHome}
           </button>
         </div>
       </div>
@@ -1036,6 +1184,28 @@ const styles = {
     fontSize: '12px',
     color: '#718096',
     textAlign: 'center',
+  },
+  languageSelector: {
+    display: 'flex',
+    gap: '8px',
+    justifyContent: 'flex-end',
+    marginBottom: '16px',
+  },
+  langButton: {
+    background: 'white',
+    color: '#718096',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  langButtonActive: {
+    background: '#2d3748',
+    color: 'white',
+    borderColor: '#2d3748',
   },
 };
 
