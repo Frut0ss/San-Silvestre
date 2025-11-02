@@ -7,6 +7,7 @@ const translations = {
     subtitle: 'Entrenamiento de Elisa',
     daysUntilRace: 'días hasta la carrera',
     thisWeek: 'Esta Semana',
+    weekPassed: 'Semana pasada',
     targetDistance: 'Distancia objetivo',
     sessions: 'Sesiones',
     startTraining: 'Iniciar Entrenamiento',
@@ -52,6 +53,7 @@ const translations = {
     subtitle: "Elisa's Training",
     daysUntilRace: 'days until race',
     thisWeek: 'This Week',
+    weekPassed: 'Past week',
     targetDistance: 'Target distance',
     sessions: 'Sessions',
     startTraining: 'Start Training',
@@ -200,6 +202,13 @@ const SanSilvestreApp = () => {
   const { plan, daysUntilRace, weeksUntilRace } = generateTrainingPlan(language);
   const currentWeekIndex = Math.min(plan.length - 1, Math.floor(plan.length - weeksUntilRace));
   const currentWeek = plan[currentWeekIndex];
+
+  // Calcular el número de la semana actual y las semanas pasadas
+  const raceDate = new Date('2025-12-31');
+  const startDate = new Date(raceDate);
+  startDate.setDate(startDate.getDate() - (plan.length * 7));
+  const today = new Date();
+  const weeksPassed = Math.floor((today - startDate) / (1000 * 60 * 60 * 24 * 7));
 
   // Cargar idioma desde localStorage
   useEffect(() => {
@@ -705,10 +714,24 @@ const SanSilvestreApp = () => {
               {plan.map((week, idx) => (
                 <div key={idx}>
                   <div 
-                    style={styles.planItem}
+                    style={{
+                      ...styles.planItem,
+                      ...(idx === currentWeekIndex ? styles.currentWeekItem : {}),
+                      ...(idx < weeksPassed ? styles.pastWeekItem : {})
+                    }}
                     onClick={() => setExpandedWeek(expandedWeek === week.week ? null : week.week)}
                   >
-                    <span>{t.week} {week.week}</span>
+                    <div style={styles.weekInfo}>
+                      <span style={styles.weekLabel}>
+                        {t.week} {week.week}
+                        {idx === currentWeekIndex && 
+                          <span style={styles.currentWeekBadge}>{t.thisWeek}</span>
+                        }
+                        {idx < weeksPassed && idx !== currentWeekIndex &&
+                          <span style={styles.pastWeekBadge}>{t.weekPassed}</span>
+                        }
+                      </span>
+                    </div>
                     <span style={styles.planDistance}>{week.distance} km</span>
                   </div>
                   
@@ -1310,6 +1333,40 @@ const styles = {
   notDoneSession: {
     background: '#fff5f5',
     borderColor: '#feb2b2',
+  },
+  currentWeekItem: {
+    borderLeft: '4px solid #3b82f6',
+    background: '#ebf8ff',
+  },
+  pastWeekItem: {
+    background: '#f7fafc',
+    color: '#a0aec0',
+  },
+  weekInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  weekLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  currentWeekBadge: {
+    background: '#3b82f6',
+    color: 'white',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '11px',
+    fontWeight: '500',
+  },
+  pastWeekBadge: {
+    background: '#e2e8f0',
+    color: '#718096',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '11px',
+    fontWeight: '500',
   },
 };const cssStyles = `
   button:active {
