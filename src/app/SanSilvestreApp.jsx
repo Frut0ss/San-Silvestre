@@ -225,10 +225,22 @@ const SanSilvestreApp = () => {
 
   // Guardar sesiones completadas en localStorage
   const toggleSessionComplete = (sessionId) => {
+    const currentStatus = completedSessions[sessionId];
+    // Rotar entre estados: undefined (pendiente) -> true (completado) -> 'not-done' (no hecho) -> undefined
+    const newStatus = currentStatus === undefined ? true : 
+                     currentStatus === true ? 'not-done' : 
+                     undefined;
+    
     const newCompleted = {
       ...completedSessions,
-      [sessionId]: !completedSessions[sessionId]
+      [sessionId]: newStatus
     };
+    
+    // Si el estado es undefined (pendiente), eliminar la entrada del objeto
+    if (newStatus === undefined) {
+      delete newCompleted[sessionId];
+    }
+    
     setCompletedSessions(newCompleted);
     localStorage.setItem('sanSilvestreCompleted', JSON.stringify(newCompleted));
   };
@@ -496,7 +508,77 @@ const SanSilvestreApp = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const [selectedSession, setSelectedSession] = useState(null);
+
+  // Función para encontrar la siguiente sesión
+  const findNextSession = () => {
+    // Si hay una sesión seleccionada, empezar a buscar desde ahí
+    let startWeekIndex = currentWeekIndex;
+    let startSessionIndex = 0;
+
+    if (selectedSession) {
+      startWeekIndex = plan.findIndex(w => w.week === selectedSession.week.week);
+      if (startWeekIndex !== -1) {
+        startSessionIndex = selectedSession.week.sessions.findIndex(s => s.id === selectedSession.session.id) + 1;
+      }
+    }
+
+    // Función para verificar si una sesión está pendiente (ni completada ni marcada como no hecha)
+    const isPending = (sessionId) => {
+      return !completedSessions[sessionId] || completedSessions[sessionId] === undefined;
+    };
+
+    // Buscar en la semana actual desde la sesión actual
+    if (startWeekIndex >= 0 && startWeekIndex < plan.length) {
+      const currentWeekSessions = plan[startWeekIndex].sessions;
+      for (let i = startSessionIndex; i < currentWeekSessions.length; i++) {
+        if (isPending(currentWeekSessions[i].id)) {
+          return { week: plan[startWeekIndex], session: currentWeekSessions[i] };
+        }
+      }
+    }
+
+    // Buscar en las siguientes semanas
+    for (let weekIndex = startWeekIndex + 1; weekIndex < plan.length; weekIndex++) {
+      const nextSession = plan[weekIndex].sessions.find(s => isPending(s.id));
+      if (nextSession) {
+        return { week: plan[weekIndex], session: nextSession };
+      }
+    }
+
+    // Si no encontramos nada hacia adelante, buscar desde el principio
+    for (let weekIndex = 0; weekIndex <= startWeekIndex; weekIndex++) {
+      const nextSession = plan[weekIndex].sessions.find(s => isPending(s.id));
+      if (nextSession) {
+        return { week: plan[weekIndex], session: nextSession };
+      }
+    }
+
+    // Si todas están completadas o marcadas como no hechas, devolver la primera sesión
+    return { week: plan[0], session: plan[0].sessions[0] };
+  };
+
+  // Actualizar la sesión seleccionada cuando cambia el plan o las sesiones completadas
+  useEffect(() => {
+    // Si la sesión actual está completada o marcada como no hecha, buscar la siguiente
+    if (selectedSession && 
+        (completedSessions[selectedSession.session.id] === true || 
+         completedSessions[selectedSession.session.id] === 'not-done')) {
+      const nextSession = findNextSession();
+      // Solo actualizar si encontramos una sesión diferente
+      if (nextSession.session.id !== selectedSession.session.id) {
+        setSelectedSession(nextSession);
+      }
+    } 
+    // Si no hay sesión seleccionada, seleccionar la siguiente disponible
+    else if (!selectedSession) {
+      const nextSession = findNextSession();
+      setSelectedSession(nextSession);
+    }
+  }, [plan, completedSessions, selectedSession]);
+
   const startWarmUp = () => {
+    
     setScreen('warmup');
     setWarmUpIndex(0);
     setWarmUpTimer(warmUpExercises[0].duration);
@@ -530,6 +612,11 @@ const SanSilvestreApp = () => {
       maxSpeed: maxSpeed.toFixed(1),
       coordinates
     };
+    
+    // Marcar la sesión como completada si hay una sesión seleccionada
+    if (selectedSession) {
+      toggleSessionComplete(selectedSession.session.id);
+    }
     
     setFinalSummary(summary);
     setScreen('summary');
@@ -607,7 +694,9 @@ const SanSilvestreApp = () => {
           )}
 
           <button onClick={startWarmUp} style={styles.primaryButton}>
-            {t.startTraining}
+            {selectedSession 
+              ? `${t.startTraining} - ${t.week} ${selectedSession.week.week}, ${selectedSession.session.name}`
+              : t.startTraining}
           </button>
 
           <div style={styles.card}>
@@ -626,21 +715,30 @@ const SanSilvestreApp = () => {
                   {expandedWeek === week.week && (
                     <div style={styles.sessionList}>
                       {week.sessions.map((session) => (
-                        <div key={session.id} style={styles.sessionItem}>
-                          <div style={styles.sessionInfo}>
+                        <div key={session.id} style={{
+                        ...styles.sessionItem,
+                        ...(selectedSession && selectedSession.session.id === session.id ? styles.selectedSession : {}),
+                        ...(completedSessions[session.id] === true ? styles.completedSession : {}),
+                        ...(completedSessions[session.id] === 'not-done' ? styles.notDoneSession : {})
+                      }}>
+                          <div 
+                            style={{...styles.sessionInfo, cursor: 'pointer'}}
+                            onClick={() => setSelectedSession({ week, session })}
+                          >
                             <div style={styles.sessionName}>{session.name}</div>
                             <div style={styles.sessionDesc}>{session.description}</div>
                             <div style={styles.sessionDistance}>{session.distance} km</div>
                           </div>
-                          <label style={styles.checkbox}>
-                            <input
-                              type="checkbox"
-                              checked={completedSessions[session.id] || false}
-                              onChange={() => toggleSessionComplete(session.id)}
-                              style={styles.checkboxInput}
-                            />
-                            <span style={styles.checkmark}></span>
-                          </label>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSessionComplete(session.id);
+                            }}
+                            style={styles.completeButton}
+                          >
+                            {completedSessions[session.id] === true ? '✓' : 
+                             completedSessions[session.id] === 'not-done' ? '✕' : '○'}
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -1036,31 +1134,25 @@ const styles = {
     color: '#4a5568',
     fontWeight: '500',
   },
-  checkbox: {
-    display: 'block',
-    position: 'relative',
-    cursor: 'pointer',
-    width: '24px',
-    height: '24px',
+  completeButton: {
+    width: '28px',
+    height: '28px',
     marginLeft: '12px',
-  },
-  checkboxInput: {
-    position: 'absolute',
-    opacity: '0',
-    cursor: 'pointer',
-    height: '0',
-    width: '0',
-  },
-  checkmark: {
-    position: 'absolute',
-    top: '0',
-    left: '0',
-    height: '24px',
-    width: '24px',
-    background: '#fff',
     border: '2px solid #cbd5e0',
-    borderRadius: '4px',
+    borderRadius: '50%',
+    background: '#fff',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '16px',
+    color: '#48bb78',
+    padding: 0,
     transition: 'all 0.2s',
+  },
+  pendingSession: {
+    background: '#fff',
+    borderColor: '#e2e8f0',
   },
   timerSection: {
     textAlign: 'center',
@@ -1202,14 +1294,24 @@ const styles = {
     cursor: 'pointer',
     transition: 'all 0.2s',
   },
-  langButtonActive: {
+    langButtonActive: {
     background: '#2d3748',
     color: 'white',
     borderColor: '#2d3748',
   },
-};
-
-const cssStyles = `
+  selectedSession: {
+    border: '2px solid #3b82f6',
+    background: '#ebf5ff',
+  },
+  completedSession: {
+    background: '#f0fff4',
+    borderColor: '#9ae6b4',
+  },
+  notDoneSession: {
+    background: '#fff5f5',
+    borderColor: '#feb2b2',
+  },
+};const cssStyles = `
   button:active {
     transform: scale(0.98);
   }
@@ -1219,20 +1321,12 @@ const cssStyles = `
   .planItem:hover {
     background: #edf2f7 !important;
   }
-  input[type="checkbox"]:checked ~ .checkmark {
-    background: #48bb78 !important;
+  button.completeButton:hover {
+    background: #f0fff4 !important;
     border-color: #48bb78 !important;
   }
-  input[type="checkbox"]:checked ~ .checkmark:after {
-    content: '';
-    position: absolute;
-    left: 7px;
-    top: 3px;
-    width: 6px;
-    height: 11px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
+  button.completeButton:active {
+    transform: scale(0.95);
   }
 `;
 
