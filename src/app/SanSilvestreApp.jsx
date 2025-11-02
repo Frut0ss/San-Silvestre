@@ -13,10 +13,26 @@ const generateTrainingPlan = () => {
   
   for (let week = 1; week <= weeksUntilRace; week++) {
     const distance = Math.min(startDistance + (increment * week), targetDistance);
+    const sessions = [];
+    const numSessions = week < 3 ? 3 : 4;
+    
+    for (let i = 1; i <= numSessions; i++) {
+      sessions.push({
+        id: `week${week}_session${i}`,
+        name: `Sesión ${i}`,
+        distance: distance.toFixed(1),
+        description: i === 1 ? 'Carrera continua suave' : 
+                    i === 2 ? 'Intervalos 1min rápido / 2min suave' :
+                    i === 3 ? 'Carrera a ritmo progresivo' :
+                    'Carrera larga y suave',
+        completed: false
+      });
+    }
+    
     plan.push({
       week,
       distance: distance.toFixed(1),
-      sessions: week < 3 ? 3 : 4,
+      sessions: sessions,
       description: week === weeksUntilRace ? 'Semana de carrera - reducir intensidad' : 
                    week > weeksUntilRace - 2 ? 'Semana de ajuste fino' : 'Construcción de base'
     });
@@ -25,7 +41,6 @@ const generateTrainingPlan = () => {
   return { plan, daysUntilRace, weeksUntilRace };
 };
 
-// Calentamiento reorganizado: primero movilidad, luego activación
 const warmUpExercises = [
   { name: 'Rotación de tobillos', duration: 30, description: '30 segundos - círculos con ambos tobillos' },
   { name: 'Rotación de rodillas', duration: 30, description: '30 segundos - círculos suaves' },
@@ -42,6 +57,9 @@ const warmUpExercises = [
 
 const SanSilvestreApp = () => {
   const [screen, setScreen] = useState('home');
+  const [expandedWeek, setExpandedWeek] = useState(null);
+  const [completedSessions, setCompletedSessions] = useState({});
+  
   const [warmUpIndex, setWarmUpIndex] = useState(0);
   const [warmUpTimer, setWarmUpTimer] = useState(0);
   const [isWarmUpActive, setIsWarmUpActive] = useState(false);
@@ -55,20 +73,146 @@ const SanSilvestreApp = () => {
   const [coordinates, setCoordinates] = useState([]);
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
-  const [calories, setCalories] = useState(0);
   
-  // Para mostrar el resumen final
   const [finalSummary, setFinalSummary] = useState(null);
+  const [routeProgress, setRouteProgress] = useState(0);
   
   const watchIdRef = useRef(null);
   const lastPositionRef = useRef(null);
   const runIntervalRef = useRef(null);
   const lastUpdateTimeRef = useRef(Date.now());
+  const canvasRef = useRef(null);
   
   const { plan, daysUntilRace, weeksUntilRace } = generateTrainingPlan();
-  const currentWeek = plan[Math.min(plan.length - 1, Math.floor((plan.length - weeksUntilRace)))];
+  const currentWeekIndex = Math.min(plan.length - 1, Math.floor((plan.length - weeksUntilRace)));
+  const currentWeek = plan[currentWeekIndex];
 
-  // Timer de calentamiento
+  // Cargar sesiones completadas desde localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('sanSilvestreCompleted');
+    if (saved) {
+      setCompletedSessions(JSON.parse(saved));
+    }
+  }, []);
+
+  // Guardar sesiones completadas en localStorage
+  const toggleSessionComplete = (sessionId) => {
+    const newCompleted = {
+      ...completedSessions,
+      [sessionId]: !completedSessions[sessionId]
+    };
+    setCompletedSessions(newCompleted);
+    localStorage.setItem('sanSilvestreCompleted', JSON.stringify(newCompleted));
+  };
+
+  // Animar ruta en el canvas
+  useEffect(() => {
+    if (screen === 'summary' && canvasRef.current && coordinates.length > 1) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+
+      // Calcular bounds
+      const lats = coordinates.map(c => c.lat);
+      const lngs = coordinates.map(c => c.lng);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+      
+      const padding = 20;
+      const latRange = maxLat - minLat || 0.001;
+      const lngRange = maxLng - minLng || 0.001;
+
+      // Función para mapear coordenadas a canvas
+      const mapToCanvas = (lat, lng) => {
+        const x = padding + ((lng - minLng) / lngRange) * (width - 2 * padding);
+        const y = height - padding - ((lat - minLat) / latRange) * (height - 2 * padding);
+        return { x, y };
+      };
+
+      // Limpiar canvas
+      ctx.clearRect(0, 0, width, height);
+      
+      // Dibujar fondo de mapa simple
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Dibujar grid
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const x = (width / 4) * i;
+        const y = (height / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      // Animar la ruta
+      let progress = 0;
+      const animationDuration = 3000; // 3 segundos
+      const startTime = Date.now();
+
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        progress = Math.min(elapsed / animationDuration, 1);
+        
+        const pointsToShow = Math.floor(coordinates.length * progress);
+        
+        if (pointsToShow > 1) {
+          // Dibujar ruta
+          ctx.strokeStyle = '#3b82f6';
+          ctx.lineWidth = 3;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          
+          ctx.beginPath();
+          const start = mapToCanvas(coordinates[0].lat, coordinates[0].lng);
+          ctx.moveTo(start.x, start.y);
+          
+          for (let i = 1; i < pointsToShow; i++) {
+            const point = mapToCanvas(coordinates[i].lat, coordinates[i].lng);
+            ctx.lineTo(point.x, point.y);
+          }
+          ctx.stroke();
+          
+          // Punto de inicio
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath();
+          ctx.arc(start.x, start.y, 6, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Punto actual/final
+          if (pointsToShow > 0) {
+            const current = mapToCanvas(
+              coordinates[pointsToShow - 1].lat,
+              coordinates[pointsToShow - 1].lng
+            );
+            ctx.fillStyle = progress < 1 ? '#3b82f6' : '#ef4444';
+            ctx.beginPath();
+            ctx.arc(current.x, current.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        
+        setRouteProgress(progress);
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      
+      animate();
+    }
+  }, [screen, coordinates]);
+
   useEffect(() => {
     let interval;
     if (isWarmUpActive && warmUpTimer > 0) {
@@ -90,7 +234,6 @@ const SanSilvestreApp = () => {
     return () => clearInterval(interval);
   }, [isWarmUpActive, warmUpTimer, warmUpIndex]);
 
-  // GPS tracking mejorado con actualizaciones más frecuentes
   useEffect(() => {
     if (isRunning && !isPaused) {
       if ('geolocation' in navigator) {
@@ -99,7 +242,6 @@ const SanSilvestreApp = () => {
             const { latitude, longitude, speed, accuracy } = position.coords;
             const now = Date.now();
             
-            // Solo procesar si la precisión es aceptable (menos de 50 metros)
             if (accuracy > 50) return;
             
             const newCoord = { 
@@ -112,11 +254,9 @@ const SanSilvestreApp = () => {
             
             setCoordinates(prev => [...prev, newCoord]);
             
-            // Calcular distancia incremental
             if (lastPositionRef.current) {
-              const timeDiff = (now - lastUpdateTimeRef.current) / 1000; // segundos
+              const timeDiff = (now - lastUpdateTimeRef.current) / 1000;
               
-              // Solo calcular si han pasado al menos 2 segundos
               if (timeDiff >= 2) {
                 const dist = calculateDistance(
                   lastPositionRef.current.lat,
@@ -125,7 +265,6 @@ const SanSilvestreApp = () => {
                   longitude
                 );
                 
-                // Filtrar distancias irreales (más de 100m en 2 segundos = 180 km/h)
                 if (dist < 0.1) {
                   setDistance(prev => prev + dist);
                   lastUpdateTimeRef.current = now;
@@ -135,7 +274,6 @@ const SanSilvestreApp = () => {
             
             lastPositionRef.current = newCoord;
             
-            // Velocidad instantánea en km/h
             if (speed !== null && speed >= 0) {
               const speedKmh = speed * 3.6;
               setCurrentSpeed(speedKmh);
@@ -151,12 +289,10 @@ const SanSilvestreApp = () => {
         );
       }
       
-      // Timer del cronómetro
       runIntervalRef.current = setInterval(() => {
         setRunTime(prev => prev + 1);
       }, 1000);
     } else if (isPaused) {
-      // Pausar GPS pero mantener datos
       if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -173,14 +309,12 @@ const SanSilvestreApp = () => {
     };
   }, [isRunning, isPaused]);
 
-  // Calcular ritmo y calorías en tiempo real
   useEffect(() => {
     if (distance > 0 && runTime > 0) {
       const timeInMinutes = runTime / 60;
       const paceMinPerKm = timeInMinutes / distance;
       setAvgPace(paceMinPerKm);
       
-      // Calcular ritmo actual (último kilómetro)
       if (coordinates.length > 1) {
         const last30Seconds = coordinates.filter(
           c => Date.now() - c.timestamp < 30000
@@ -204,9 +338,6 @@ const SanSilvestreApp = () => {
           }
         }
       }
-      
-      // Estimación de calorías (aproximado: 60 kcal por km para persona promedio)
-      setCalories(Math.round(distance * 60));
     }
   }, [distance, runTime, coordinates]);
 
@@ -266,13 +397,11 @@ const SanSilvestreApp = () => {
     setIsRunning(false);
     setIsPaused(false);
     
-    // Guardar resumen
     const summary = {
       distance: distance.toFixed(2),
       time: formatTime(runTime),
       avgPace: formatPace(avgPace),
       maxSpeed: maxSpeed.toFixed(1),
-      calories: calories,
       coordinates: coordinates
     };
     
@@ -289,13 +418,13 @@ const SanSilvestreApp = () => {
     setAvgPace(0);
     setCurrentSpeed(0);
     setMaxSpeed(0);
-    setCalories(0);
     lastPositionRef.current = null;
     lastUpdateTimeRef.current = Date.now();
     setFinalSummary(null);
+    setRouteProgress(0);
   };
 
-  // PANTALLA HOME
+  // HOME
   if (screen === 'home') {
     return (
       <div style={styles.container}>
@@ -322,7 +451,7 @@ const SanSilvestreApp = () => {
                 </div>
                 <div style={styles.statBox}>
                   <div style={styles.statLabel}>Sesiones</div>
-                  <div style={styles.statValue}>{currentWeek.sessions}</div>
+                  <div style={styles.statValue}>{currentWeek.sessions.length}</div>
                 </div>
               </div>
               <p style={styles.description}>{currentWeek.description}</p>
@@ -337,9 +466,37 @@ const SanSilvestreApp = () => {
             <h3 style={styles.sectionTitle}>Plan Completo</h3>
             <div style={styles.planList}>
               {plan.map((week, idx) => (
-                <div key={idx} style={styles.planItem}>
-                  <span>Semana {week.week}</span>
-                  <span style={styles.planDistance}>{week.distance} km</span>
+                <div key={idx}>
+                  <div 
+                    style={styles.planItem}
+                    onClick={() => setExpandedWeek(expandedWeek === week.week ? null : week.week)}
+                  >
+                    <span>Semana {week.week}</span>
+                    <span style={styles.planDistance}>{week.distance} km</span>
+                  </div>
+                  
+                  {expandedWeek === week.week && (
+                    <div style={styles.sessionList}>
+                      {week.sessions.map((session) => (
+                        <div key={session.id} style={styles.sessionItem}>
+                          <div style={styles.sessionInfo}>
+                            <div style={styles.sessionName}>{session.name}</div>
+                            <div style={styles.sessionDesc}>{session.description}</div>
+                            <div style={styles.sessionDistance}>{session.distance} km</div>
+                          </div>
+                          <label style={styles.checkbox}>
+                            <input
+                              type="checkbox"
+                              checked={completedSessions[session.id] || false}
+                              onChange={() => toggleSessionComplete(session.id)}
+                              style={styles.checkboxInput}
+                            />
+                            <span style={styles.checkmark}></span>
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -349,13 +506,13 @@ const SanSilvestreApp = () => {
     );
   }
 
-  // PANTALLA CALENTAMIENTO
+  // WARMUP
   if (screen === 'warmup') {
     const currentExercise = warmUpExercises[warmUpIndex];
     const progress = ((warmUpExercises[warmUpIndex].duration - warmUpTimer) / warmUpExercises[warmUpIndex].duration) * 100;
     
     return (
-      <div style={{...styles.container, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'}}>
+      <div style={styles.container}>
         <style>{cssStyles}</style>
         
         <div style={styles.content}>
@@ -401,17 +558,17 @@ const SanSilvestreApp = () => {
     );
   }
 
-  // PANTALLA CORRIENDO
+  // RUNNING
   if (screen === 'running') {
     return (
-      <div style={{...styles.container, background: isPaused ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' : 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'}}>
+      <div style={styles.container}>
         <style>{cssStyles}</style>
         
         <div style={styles.content}>
           <div style={styles.card}>
             <div style={styles.mainTimer}>
               <div style={styles.mainTimerValue}>{formatTime(runTime)}</div>
-              <div style={styles.mainTimerLabel}>{isPaused ? 'PAUSADO' : 'Tiempo transcurrido'}</div>
+              <div style={styles.mainTimerLabel}>{isPaused ? 'PAUSADO' : 'Tiempo'}</div>
             </div>
 
             <div style={styles.statsGrid}>
@@ -421,8 +578,8 @@ const SanSilvestreApp = () => {
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Calorías</div>
-                <div style={styles.runStatValue}>{calories} kcal</div>
+                <div style={styles.runStatLabel}>Velocidad máx</div>
+                <div style={styles.runStatValue}>{maxSpeed.toFixed(1)} km/h</div>
               </div>
             </div>
 
@@ -435,7 +592,7 @@ const SanSilvestreApp = () => {
               
               <div style={styles.runStatBox}>
                 <div style={styles.runStatLabel}>Ritmo actual</div>
-                <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#4facfe'}}>
+                <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#2d3748'}}>
                   {isPaused ? '--:--' : formatPace(currentPace)}
                 </div>
                 <div style={styles.runStatUnit}>min/km</div>
@@ -445,21 +602,17 @@ const SanSilvestreApp = () => {
             <div style={styles.statsGrid}>
               <div style={styles.runStatBox}>
                 <div style={styles.runStatLabel}>Velocidad actual</div>
-                <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#48bb78'}}>
-                  {isPaused ? '--' : currentSpeed.toFixed(1)}
+                <div style={{...styles.runStatValue, color: isPaused ? '#cbd5e0' : '#2d3748'}}>
+                  {isPaused ? '--' : currentSpeed.toFixed(1)} km/h
                 </div>
-                <div style={styles.runStatUnit}>km/h</div>
               </div>
               
               <div style={styles.runStatBox}>
-                <div style={styles.runStatLabel}>Velocidad máx</div>
-                <div style={styles.runStatValue}>{maxSpeed.toFixed(1)}</div>
-                <div style={styles.runStatUnit}>km/h</div>
+                <div style={styles.runStatLabel}>Estado GPS</div>
+                <div style={{...styles.runStatValue, fontSize: '16px'}}>
+                  {isPaused ? 'Pausado' : 'Activo'}
+                </div>
               </div>
-            </div>
-
-            <div style={styles.gpsInfo}>
-              GPS: {coordinates.length} puntos | Precisión: {coordinates.length > 0 ? Math.round(coordinates[coordinates.length - 1].accuracy) + 'm' : '--'}
             </div>
           </div>
 
@@ -480,18 +633,8 @@ const SanSilvestreApp = () => {
     );
   }
 
-  // PANTALLA RESUMEN CON MAPA
+  // SUMMARY
   if (screen === 'summary' && finalSummary) {
-    const bounds = coordinates.length > 0 ? {
-      minLat: Math.min(...coordinates.map(c => c.lat)),
-      maxLat: Math.max(...coordinates.map(c => c.lat)),
-      minLng: Math.min(...coordinates.map(c => c.lng)),
-      maxLng: Math.max(...coordinates.map(c => c.lng))
-    } : null;
-
-    const centerLat = bounds ? (bounds.minLat + bounds.maxLat) / 2 : 0;
-    const centerLng = bounds ? (bounds.minLng + bounds.maxLng) / 2 : 0;
-
     return (
       <div style={styles.container}>
         <style>{cssStyles}</style>
@@ -520,31 +663,20 @@ const SanSilvestreApp = () => {
                 <div style={styles.summaryLabel}>Velocidad máx</div>
                 <div style={styles.summaryValue}>{finalSummary.maxSpeed} km/h</div>
               </div>
-              
-              <div style={styles.summaryBox}>
-                <div style={styles.summaryLabel}>Calorías</div>
-                <div style={styles.summaryValue}>{finalSummary.calories} kcal</div>
-              </div>
-              
-              <div style={styles.summaryBox}>
-                <div style={styles.summaryLabel}>Puntos GPS</div>
-                <div style={styles.summaryValue}>{coordinates.length}</div>
-              </div>
             </div>
           </div>
 
           {coordinates.length > 1 && (
             <div style={styles.card}>
-              <h3 style={styles.sectionTitle}>Mapa de la Ruta</h3>
-              <div style={styles.mapContainer}>
-                <iframe
-                  style={styles.mapFrame}
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}&layer=mapnik&marker=${centerLat},${centerLng}`}
-                  title="Mapa de la ruta"
-                />
-              </div>
+              <h3 style={styles.sectionTitle}>Ruta del Entrenamiento</h3>
+              <canvas
+                ref={canvasRef}
+                width={460}
+                height={300}
+                style={styles.canvas}
+              />
               <div style={styles.mapNote}>
-                La ruta detallada se ha registrado con {coordinates.length} puntos GPS
+                {routeProgress < 1 ? 'Dibujando ruta...' : 'Ruta completada'}
               </div>
             </div>
           )}
@@ -563,7 +695,7 @@ const SanSilvestreApp = () => {
 const styles = {
   container: {
     minHeight: '100vh',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    background: '#f5f5f5',
     padding: '20px',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   },
@@ -573,96 +705,97 @@ const styles = {
   },
   card: {
     background: 'white',
-    borderRadius: '16px',
-    padding: '24px',
+    borderRadius: '8px',
+    padding: '20px',
     marginBottom: '16px',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
   },
   title: {
-    fontSize: '28px',
-    fontWeight: '700',
-    color: '#1a202c',
-    margin: '0 0 8px 0',
+    fontSize: '24px',
+    fontWeight: '600',
+    color: '#2d3748',
+    margin: '0 0 4px 0',
   },
   subtitle: {
-    fontSize: '16px',
+    fontSize: '14px',
     color: '#718096',
-    margin: '0 0 24px 0',
+    margin: '0 0 20px 0',
   },
   countdown: {
-    background: '#f7fafc',
-    borderRadius: '12px',
-    padding: '24px',
+    background: '#fafafa',
+    borderRadius: '8px',
+    padding: '20px',
     textAlign: 'center',
   },
   countdownNumber: {
-    fontSize: '56px',
-    fontWeight: '700',
-    color: '#667eea',
+    fontSize: '48px',
+    fontWeight: '600',
+    color: '#2d3748',
     lineHeight: '1',
   },
   countdownLabel: {
-    fontSize: '14px',
+    fontSize: '13px',
     color: '#718096',
-    marginTop: '8px',
+    marginTop: '6px',
   },
   sectionTitle: {
-    fontSize: '20px',
+    fontSize: '18px',
     fontWeight: '600',
-    color: '#1a202c',
-    margin: '0 0 16px 0',
+    color: '#2d3748',
+    margin: '0 0 14px 0',
   },
   statsGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: '12px',
-    marginBottom: '16px',
+    gap: '10px',
+    marginBottom: '14px',
   },
   statBox: {
-    background: '#f7fafc',
-    borderRadius: '12px',
-    padding: '16px',
+    background: '#fafafa',
+    borderRadius: '6px',
+    padding: '14px',
     textAlign: 'center',
   },
   statLabel: {
-    fontSize: '12px',
+    fontSize: '11px',
     color: '#718096',
     marginBottom: '4px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
   },
   statValue: {
-    fontSize: '24px',
-    fontWeight: '700',
-    color: '#667eea',
+    fontSize: '20px',
+    fontWeight: '600',
+    color: '#2d3748',
   },
   description: {
-    fontSize: '14px',
+    fontSize: '13px',
     color: '#718096',
-    fontStyle: 'italic',
     margin: '0',
+    lineHeight: '1.5',
   },
   primaryButton: {
     width: '100%',
-    background: 'white',
-    color: '#1a202c',
+    background: '#2d3748',
+    color: 'white',
     border: 'none',
-    borderRadius: '16px',
-    padding: '24px',
-    fontSize: '18px',
-    fontWeight: '600',
+    borderRadius: '6px',
+    padding: '16px',
+    fontSize: '15px',
+    fontWeight: '500',
     cursor: 'pointer',
     marginBottom: '16px',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-    transition: 'transform 0.2s',
+    transition: 'background 0.2s',
   },
   secondaryButton: {
     flex: '1',
-    background: '#667eea',
+    background: '#4a5568',
     color: 'white',
     border: 'none',
-    borderRadius: '12px',
-    padding: '16px',
-    fontSize: '16px',
-    fontWeight: '600',
+    borderRadius: '6px',
+    padding: '14px',
+    fontSize: '14px',
+    fontWeight: '500',
     cursor: 'pointer',
     transition: 'background 0.2s',
   },
@@ -671,10 +804,10 @@ const styles = {
     background: '#48bb78',
     color: 'white',
     border: 'none',
-    borderRadius: '12px',
-    padding: '16px',
-    fontSize: '16px',
-    fontWeight: '600',
+    borderRadius: '6px',
+    padding: '14px',
+    fontSize: '14px',
+    fontWeight: '500',
     cursor: 'pointer',
   },
   skipButton: {
@@ -682,10 +815,10 @@ const styles = {
     background: '#e2e8f0',
     color: '#4a5568',
     border: 'none',
-    borderRadius: '12px',
-    padding: '16px',
-    fontSize: '16px',
-    fontWeight: '600',
+    borderRadius: '6px',
+    padding: '14px',
+    fontSize: '14px',
+    fontWeight: '500',
     cursor: 'pointer',
   },
   dangerButton: {
@@ -693,53 +826,116 @@ const styles = {
     background: '#f56565',
     color: 'white',
     border: 'none',
-    borderRadius: '12px',
-    padding: '16px',
-    fontSize: '16px',
-    fontWeight: '600',
+    borderRadius: '6px',
+    padding: '14px',
+    fontSize: '14px',
+    fontWeight: '500',
     cursor: 'pointer',
   },
   planList: {
-    maxHeight: '300px',
+    maxHeight: '400px',
     overflowY: 'auto',
   },
   planItem: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    background: '#f7fafc',
-    borderRadius: '8px',
-    padding: '12px 16px',
-    marginBottom: '8px',
+    background: '#fafafa',
+    borderRadius: '6px',
+    padding: '12px 14px',
+    marginBottom: '6px',
     fontSize: '14px',
     color: '#4a5568',
+    cursor: 'pointer',
+    transition: 'background 0.2s',
   },
   planDistance: {
-    fontWeight: '700',
-    color: '#667eea',
+    fontWeight: '600',
+    color: '#2d3748',
+  },
+  sessionList: {
+    marginLeft: '12px',
+    marginBottom: '12px',
+    paddingLeft: '12px',
+    borderLeft: '2px solid #e2e8f0',
+  },
+  sessionItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: 'white',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    padding: '10px 12px',
+    marginBottom: '6px',
+  },
+  sessionInfo: {
+    flex: '1',
+  },
+  sessionName: {
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#2d3748',
+    marginBottom: '2px',
+  },
+  sessionDesc: {
+    fontSize: '12px',
+    color: '#718096',
+    marginBottom: '4px',
+  },
+  sessionDistance: {
+    fontSize: '11px',
+    color: '#4a5568',
+    fontWeight: '500',
+  },
+  checkbox: {
+    display: 'block',
+    position: 'relative',
+    cursor: 'pointer',
+    width: '24px',
+    height: '24px',
+    marginLeft: '12px',
+  },
+  checkboxInput: {
+    position: 'absolute',
+    opacity: '0',
+    cursor: 'pointer',
+    height: '0',
+    width: '0',
+  },
+  checkmark: {
+    position: 'absolute',
+    top: '0',
+    left: '0',
+    height: '24px',
+    width: '24px',
+    background: '#fff',
+    border: '2px solid #cbd5e0',
+    borderRadius: '4px',
+    transition: 'all 0.2s',
   },
   timerSection: {
     textAlign: 'center',
-    marginBottom: '24px',
+    marginBottom: '20px',
   },
   timerDisplay: {
-    fontSize: '72px',
-    fontWeight: '700',
-    color: '#667eea',
+    fontSize: '56px',
+    fontWeight: '600',
+    color: '#2d3748',
     lineHeight: '1',
-    marginBottom: '16px',
+    marginBottom: '14px',
   },
   progressBar: {
     width: '100%',
-    height: '8px',
+    height: '6px',
     background: '#e2e8f0',
-    borderRadius: '4px',
+    borderRadius: '3px',
     overflow: 'hidden',
-    marginBottom: '12px',
+    marginBottom: '10px',
   },
   progressFill: {
     height: '100%',
-    background: '#667eea',
+    background: '#4a5568',
     transition: 'width 1s linear',
   },
   exerciseCount: {
@@ -747,110 +943,99 @@ const styles = {
     color: '#718096',
   },
   exerciseBox: {
-    background: '#f7fafc',
-    borderRadius: '12px',
-    padding: '20px',
-    marginBottom: '24px',
+    background: '#fafafa',
+    borderRadius: '6px',
+    padding: '16px',
+    marginBottom: '20px',
   },
   exerciseName: {
-    fontSize: '18px',
+    fontSize: '16px',
     fontWeight: '600',
-    color: '#1a202c',
-    margin: '0 0 8px 0',
+    color: '#2d3748',
+    margin: '0 0 6px 0',
   },
   exerciseDesc: {
-    fontSize: '14px',
+    fontSize: '13px',
     color: '#718096',
     margin: '0',
   },
   buttonGroup: {
     display: 'flex',
-    gap: '12px',
+    gap: '10px',
   },
   mainTimer: {
     textAlign: 'center',
-    marginBottom: '24px',
+    marginBottom: '20px',
   },
   mainTimerValue: {
-    fontSize: '64px',
-    fontWeight: '700',
-    color: '#4facfe',
+    fontSize: '52px',
+    fontWeight: '600',
+    color: '#2d3748',
     lineHeight: '1',
   },
   mainTimerLabel: {
-    fontSize: '14px',
+    fontSize: '13px',
     color: '#718096',
-    marginTop: '8px',
-    fontWeight: '600',
+    marginTop: '6px',
+    fontWeight: '500',
   },
   runStatBox: {
-    background: '#f7fafc',
-    borderRadius: '12px',
-    padding: '16px',
+    background: '#fafafa',
+    borderRadius: '6px',
+    padding: '14px',
     textAlign: 'center',
   },
   runStatLabel: {
-    fontSize: '12px',
+    fontSize: '11px',
     color: '#718096',
     marginBottom: '4px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
   },
   runStatValue: {
-    fontSize: '20px',
-    fontWeight: '700',
-    color: '#4facfe',
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#2d3748',
   },
   runStatUnit: {
     fontSize: '11px',
     color: '#a0aec0',
     marginTop: '2px',
   },
-  gpsInfo: {
-    fontSize: '12px',
-    color: '#718096',
-    textAlign: 'center',
-    marginTop: '16px',
-    padding: '12px',
-    background: '#f7fafc',
-    borderRadius: '8px',
-  },
   summaryGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: '12px',
+    gap: '10px',
   },
   summaryBox: {
-    background: '#f7fafc',
-    borderRadius: '12px',
-    padding: '16px',
+    background: '#fafafa',
+    borderRadius: '6px',
+    padding: '14px',
     textAlign: 'center',
   },
   summaryLabel: {
-    fontSize: '12px',
+    fontSize: '11px',
     color: '#718096',
-    marginBottom: '8px',
+    marginBottom: '6px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
   },
   summaryValue: {
-    fontSize: '22px',
-    fontWeight: '700',
-    color: '#667eea',
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#2d3748',
   },
-  mapContainer: {
+  canvas: {
     width: '100%',
-    height: '300px',
-    borderRadius: '12px',
-    overflow: 'hidden',
-    marginBottom: '12px',
-  },
-  mapFrame: {
-    width: '100%',
-    height: '100%',
-    border: 'none',
+    height: 'auto',
+    borderRadius: '6px',
+    border: '1px solid #e2e8f0',
+    marginBottom: '10px',
   },
   mapNote: {
     fontSize: '12px',
     color: '#718096',
     textAlign: 'center',
-    fontStyle: 'italic',
   },
 };
 
@@ -859,7 +1044,25 @@ const cssStyles = `
     transform: scale(0.98);
   }
   button:hover {
-    opacity: 0.9);
+    opacity: 0.92;
+  }
+  .planItem:hover {
+    background: #edf2f7 !important;
+  }
+  input[type="checkbox"]:checked ~ .checkmark {
+    background: #48bb78 !important;
+    border-color: #48bb78 !important;
+  }
+  input[type="checkbox"]:checked ~ .checkmark:after {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 3px;
+    width: 6px;
+    height: 11px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
   }
 `;
 
