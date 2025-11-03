@@ -190,6 +190,11 @@ const SanSilvestreApp = () => {
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
   
+  // Referencias para Worker y WakeLock
+  const workerRef = useRef(null);
+  const wakeLockRef = useRef(null);
+  const notificationPermissionRef = useRef(false);
+  
   const [finalSummary, setFinalSummary] = useState(null);
   const [routeProgress, setRouteProgress] = useState(0);
   
@@ -384,8 +389,90 @@ const SanSilvestreApp = () => {
   }, [isWarmUpActive, warmUpTimer, warmUpIndex, warmUpExercises]);
 
   // Geolocalización y carrera
+  // Solicitar permisos de notificación
+  useEffect(() => {
+    const requestNotificationPermission = async () => {
+      if ('Notification' in window) {
+        const permission = await Notification.requestPermission();
+        notificationPermissionRef.current = permission === 'granted';
+      }
+    };
+    requestNotificationPermission();
+  }, []);
+
+  // Inicializar Web Worker
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('../utils/timerWorker.js', import.meta.url));
+    workerRef.current.onmessage = (e) => {
+      if (e.data.type === 'tick') {
+        setRunTime(e.data.time);
+        
+        // Enviar notificación cada 5 minutos
+        if (e.data.time % 300 === 0 && notificationPermissionRef.current) {
+          new Notification('Entrenamiento en curso', {
+            body: `Tiempo: ${formatTime(e.data.time)} - Distancia: ${distance.toFixed(2)}km`,
+            icon: '/icon.png' // Asegúrate de tener un icono en tu proyecto
+          });
+        }
+      }
+    };
+
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+      }
+    };
+  }, [distance]);
+
+  // Gestionar Wake Lock
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          console.log('Wake Lock error:', err);
+        }
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+    };
+
+    if (isRunning && !isPaused) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    // Reactivar Wake Lock cuando la pantalla se vuelve a encender
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && isRunning && !isPaused) {
+        await requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      releaseWakeLock();
+    };
+  }, [isRunning, isPaused]);
+
+  // Gestionar geolocalización y temporizador
   useEffect(() => {
     if (isRunning && !isPaused) {
+      // Iniciar el Web Worker
+      workerRef.current?.postMessage({ 
+        command: 'start',
+        elapsedTime: runTime * 1000 // Convertir a milisegundos
+      });
+
+      // Iniciar seguimiento GPS
       if ('geolocation' in navigator) {
         watchIdRef.current = navigator.geolocation.watchPosition(
           (position) => {
@@ -434,11 +521,10 @@ const SanSilvestreApp = () => {
           { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
         );
       }
-      
-      runIntervalRef.current = setInterval(() => {
-        setRunTime(prev => prev + 1);
-      }, 1000);
     } else if (isPaused) {
+      // Pausar el Web Worker
+      workerRef.current?.postMessage({ command: 'pause' });
+      
       if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -449,9 +535,7 @@ const SanSilvestreApp = () => {
       if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
-      if (runIntervalRef.current) {
-        clearInterval(runIntervalRef.current);
-      }
+      workerRef.current?.postMessage({ command: 'stop' });
     };
   }, [isRunning, isPaused]);
 
