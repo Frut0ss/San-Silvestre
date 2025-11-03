@@ -389,8 +389,9 @@ const SanSilvestreApp = () => {
   }, [isWarmUpActive, warmUpTimer, warmUpIndex, warmUpExercises]);
 
   // Geolocalización y carrera
-  // Solicitar permisos de notificación
+  // Gestionar Wake Lock y notificaciones
   useEffect(() => {
+    // Solicitar permisos de notificación
     const requestNotificationPermission = async () => {
       if ('Notification' in window) {
         const permission = await Notification.requestPermission();
@@ -398,34 +399,8 @@ const SanSilvestreApp = () => {
       }
     };
     requestNotificationPermission();
-  }, []);
 
-  // Inicializar Web Worker
-  useEffect(() => {
-    workerRef.current = new Worker(new URL('../utils/timerWorker.js', import.meta.url));
-    workerRef.current.onmessage = (e) => {
-      if (e.data.type === 'tick') {
-        setRunTime(e.data.time);
-        
-        // Enviar notificación cada 5 minutos
-        if (e.data.time % 300 === 0 && notificationPermissionRef.current) {
-          new Notification('Entrenamiento en curso', {
-            body: `Tiempo: ${formatTime(e.data.time)} - Distancia: ${distance.toFixed(2)}km`,
-            icon: '/icon.png' // Asegúrate de tener un icono en tu proyecto
-          });
-        }
-      }
-    };
-
-    return () => {
-      if (workerRef.current) {
-        workerRef.current.terminate();
-      }
-    };
-  }, [distance]);
-
-  // Gestionar Wake Lock
-  useEffect(() => {
+    // Configurar Wake Lock
     const requestWakeLock = async () => {
       if ('wakeLock' in navigator) {
         try {
@@ -436,20 +411,6 @@ const SanSilvestreApp = () => {
       }
     };
 
-    const releaseWakeLock = async () => {
-      if (wakeLockRef.current) {
-        await wakeLockRef.current.release();
-        wakeLockRef.current = null;
-      }
-    };
-
-    if (isRunning && !isPaused) {
-      requestWakeLock();
-    } else {
-      releaseWakeLock();
-    }
-
-    // Reactivar Wake Lock cuando la pantalla se vuelve a encender
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && isRunning && !isPaused) {
         await requestWakeLock();
@@ -457,22 +418,25 @@ const SanSilvestreApp = () => {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      releaseWakeLock();
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release();
+      }
     };
   }, [isRunning, isPaused]);
 
-  // Gestionar geolocalización y temporizador
+  // Geolocalización y temporizador principal (código original)
   useEffect(() => {
     if (isRunning && !isPaused) {
-      // Iniciar el Web Worker
-      workerRef.current?.postMessage({ 
-        command: 'start',
-        elapsedTime: runTime * 1000 // Convertir a milisegundos
-      });
+      // Activar Wake Lock cuando empieza el entrenamiento
+      if ('wakeLock' in navigator) {
+        navigator.wakeLock.request('screen').then(lock => {
+          wakeLockRef.current = lock;
+        });
+      }
 
-      // Iniciar seguimiento GPS
       if ('geolocation' in navigator) {
         watchIdRef.current = navigator.geolocation.watchPosition(
           (position) => {
@@ -521,13 +485,27 @@ const SanSilvestreApp = () => {
           { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
         );
       }
-    } else if (isPaused) {
-      // Pausar el Web Worker
-      workerRef.current?.postMessage({ command: 'pause' });
       
+      runIntervalRef.current = setInterval(() => {
+        setRunTime(prev => {
+          const newTime = prev + 1;
+          // Enviar notificación cada 5 minutos
+          if (newTime % 300 === 0 && notificationPermissionRef.current) {
+            new Notification('Entrenamiento en curso', {
+              body: `Tiempo: ${formatTime(newTime)} - Distancia: ${distance.toFixed(2)}km`,
+            });
+          }
+          return newTime;
+        });
+      }, 1000);
+    } else if (isPaused) {
       if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
+      }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release();
+        wakeLockRef.current = null;
       }
     }
     
@@ -535,9 +513,14 @@ const SanSilvestreApp = () => {
       if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
-      workerRef.current?.postMessage({ command: 'stop' });
+      if (runIntervalRef.current) {
+        clearInterval(runIntervalRef.current);
+      }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release();
+      }
     };
-  }, [isRunning, isPaused]);
+  }, [isRunning, isPaused, distance]);
 
   // Calcular ritmo
   useEffect(() => {
